@@ -211,7 +211,7 @@ impl<'main> CFGRunner<'main> {
                 return (val.start_pc, val.end_pc);
             }
         }
-        panic!("Could not find node for pc {pc}");
+        panic!("Could not find node for pc {pc}, hex: {:x}", pc);
     }
 
     pub fn get_node_from_entry_pc(&self, pc: u16) -> (u16, u16) {

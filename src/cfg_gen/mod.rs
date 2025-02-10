@@ -428,6 +428,12 @@ pub fn opcode(code: u8) -> Opcode {
             inputs: 2,
             outputs: 0,
         },
+        0x5e => Opcode {
+            name: String::from("MCOPY"),
+            mingas: 3,
+            inputs: 3,
+            outputs: 0,
+        },
         0x5f => Opcode {
             name: String::from("PUSH0"),
             mingas: 2,

@@ -103,7 +103,7 @@ pub const OPCODE_JUMPMAP: [Option<&'static str>; 256] = [
     /* 0x5b */ Some("JUMPDEST"),
     /* 0x5c */ Some("TLOAD"),
     /* 0x55 */ Some("TSTORE"),
-    /* 0x5e */ None,
+    /* 0x5e */ Some("MCOPY"),
     /* 0x5f */ Some("PUSH0"),
     /* 0x60 */ Some("PUSH1"),
     /* 0x61 */ Some("PUSH2"),
@@ -1163,6 +1163,15 @@ impl InstructionBlock {
                     &mut stack_entry_pos_to_op_usage,
                     &mut stack_entries_touched,
                 ),
+                MCOPY => InstructionBlock::n_in_m_out(
+                    op_inputs,
+                    op_outputs,
+                    &mut stack,
+                    pc,
+                    op,
+                    &mut stack_entry_pos_to_op_usage,
+                    &mut stack_entries_touched,
+                ),
                 0x80..=0x8f => {
                     // dup
                     let dup_loc = (op - 0x80) as usize;
@@ -1596,4 +1605,8 @@ pub fn disassemble(bytecode: &[u8]) -> Vec<InstructionBlock> {
         block.end_block(pc, &mut blocks);
     }
     blocks
+}
+
+fn format_pc_decimal(pc: u16) -> String {
+    pc.to_string()
 }
