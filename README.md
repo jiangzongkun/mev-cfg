@@ -1,3 +1,5 @@
+# evm-cfg-execpath
+=======
 # EVM CFG (Trace Highlight Fork)
 
 A fast and accurate EVM bytecode control flow graph (CFG) generator **with dynamic trace path highlighting**.  
@@ -7,7 +9,7 @@ This fork allows you to visualize not only the static CFG, but also the actual e
 
 <p align="center">
 <img width="60%" src="examples/basic_code.svg">
-<img width="25%" src="examples/basic.svg">
+<img width="25%" src="examples/mytrace.svg">
 </p>
 
 ## Installation
@@ -70,39 +72,6 @@ This method is definitely not bulletproof, and there are cases where it will fai
 
 - Fun Reversing Challenge has at most 3 tracked values on the stack at once, and they each stay within 10 depth
 
-## Example Outputs
-
-First, some timings. This tool is fast!
-| | |
-| --- | --- |
-| Contract | Time to Generate CFG |
-| [April CTF](https://kovan.etherscan.io/address/0x3a5a3bb5ec113fad3cc4e5d922192d14a78646b1#code) | 0.620 ms |
-| [WETH9](https://etherscan.io/address/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2) | 0.778 ms |
-| [Fun Reversing Challenge](https://github.com/paradigmxyz/paradigm-ctf-2022/tree/main/fun-reversing-challenge) | 1.64 ms |
-| [UniswapV2Router](https://etherscan.io/address/0x7a250d5630b4cf539739df2c5dacb4c659f2488d) | 10.85 ms |
-
-Here are some examples of the graph visualizations:
-
-[WETH9](https://etherscan.io/address/0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2) on mainnet:
-
-- Basic contract showing very clean, separated control flow by function
-
-<img width="100%" src="examples/weth9.svg">
-
-[Fun Reversing Challenge](https://github.com/paradigmxyz/paradigm-ctf-2022/tree/main/fun-reversing-challenge) from paradigmctf2022:
-
-- This challenge requires entering calldata that becomes heavily XOR'd to match a specific magic value
-  - IIRC this features a rijndael based method? I recall it featured many many loops and bricked my computer when attempting the solve. The complexity of the looping is fun to see in the graph.
-
-<img width="100%" src="examples/fun_reversing_challenge.svg">
-
-April by @brockelmore:
-
-- This challenge allows you to input a value that acts as a pointer to jump to any location in the program. This type of jump is treated as _symbolic_ and is quite difficult to manage a graph representation of when every jump is possible.
-  - Looking at the graph output, we can see that there are several instruction blocks that are fully detached from all control flow other than a possible symbolic jump. - Interestingly, the winning jumpdest is [hidden away in the contract metadata](https://twitter.com/plotchy/status/1618743147361873921)
-
-<img width="100%" src="examples/april.svg">
-
 ## About This Project
 
 This project is a fork of [evm-cfg](https://github.com/plotchy/evm-cfg) with additional features.
@@ -141,3 +110,4 @@ This fork highlights the actual execution path of a contract by:
 - Highlighting all blocks and edges that were actually executed during the transaction, based on the trace.
 
 This allows users to visualize not just the static structure of the contract, but also the precise path taken during a specific transaction.
+>>>>>>> ebdb665 (Initial commit)
