@@ -1606,7 +1606,3 @@ pub fn disassemble(bytecode: &[u8]) -> Vec<InstructionBlock> {
     }
     blocks
 }
-
-fn format_pc_decimal(pc: u16) -> String {
-    pc.to_string()
-}

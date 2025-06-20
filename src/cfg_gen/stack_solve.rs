@@ -1,7 +1,7 @@
 use fnv::FnvBuildHasher;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use crate::cfg_gen::cfg_graph::*;
+use crate::cfg_gen::cfg_graph::{CFGRunner, Edges};
 use crate::cfg_gen::dasm::*;
 use crate::cfg_gen::*;
 

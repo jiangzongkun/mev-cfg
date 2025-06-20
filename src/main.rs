@@ -28,41 +28,23 @@ struct Args {
     #[clap(long, default_value = "false")]
     pub open: bool,
 
-    /// Verbosity of the cfg creatoor
-    ///
-    /// Pass multiple times to increase the verbosity (e.g. -v, -vv, -vvv).
-    ///
-    /// Verbosity levels:
-    ///
-    ///   0: Print results only (.dot directly to stdout, "saved to <file>")
-    ///   1: Additionally print timings
-    ///   2: Additionally saves the cfg with only basic connections to cfg_basic_connections.dot
-    ///   3: Additionally saves the cfg with only nodes to cfg_nodes_only.dot
-    ///   4: Additionally prints all valid jumpdests found by revm
-    ///  11: This one goes to 11
-    #[clap(long, short, verbatim_doc_comment, action = ArgAction::Count)]
+    /// Verbosity of the cfg creator
+    #[clap(long, short, action = ArgAction::Count)]
     pub verbosity: u8,
+
+    /// Optional: Path to a transaction trace JSON file
+    #[clap(long)]
+    pub trace: Option<String>,
+
+    /// The contract address (hex, e.g. 0x1234...) to highlight in trace
+    #[clap(long)]
+    pub contract: String,
 }
 
 fn main() {
     let args = Args::parse();
     let path_string = args.path_or_bytecode;
-    // check if path ends with .sol, if so, tell user to use solc to get bytecode and exit
-    if path_string.ends_with(".sol") {
-        println!("Use solc to get bytecode from solidity source files. ie:");
-        println!(
-            "   `solc {} --bin-runtime --no-cbor-metadata --optimize --via-ir`",
-            &path_string
-        );
-        println!("then run this tool on the resulting bytecode");
-        println!("   `evm_cfg <bytecode>`");
-        std::process::exit(1);
-    }
-
-    // check if path, if so read file, else use as bytecode
     let bytecode_string = std::fs::read_to_string(&path_string).unwrap_or(path_string);
-
-    // sanitize bytecode string from newlines/spaces/etc
     let bytecode_string = bytecode_string.replace(['\n', ' ', '\r'], "");
 
     let verbosity = args.verbosity;
@@ -106,7 +88,7 @@ fn main() {
     // DISASSEMBLY
     let disassembly_time = std::time::Instant::now();
     // get jumptable from revm
-    let contract_data : Bytes = hex::decode(&bytecode_string ).unwrap().into();
+    let contract_data: Bytes = hex::decode(&bytecode_string).unwrap().into();
     let bytecode_analysed = to_analysed(Bytecode::new_raw(contract_data));
     let revm_jumptable = bytecode_analysed.legacy_jump_table().expect("revm bytecode analysis failed");
 
@@ -129,20 +111,46 @@ fn main() {
     // convert bytecode to instruction blocks
     let mut instruction_blocks = dasm::disassemble(bytecode_analysed.original_byte_slice().into());
 
-    // analyze each instruction block statically to determine stack usage agnostic to entry values
     for block in &mut instruction_blocks {
         block.analyze_stack_info();
     }
 
-    // QoL: map cfg-nodes to instruction blocks for easy lookup rather than stuffing graph with instruction block info as node weights
     let mut map_to_instructionblocks: BTreeMap<(u16, u16), InstructionBlock> = instruction_blocks
         .iter()
         .map(|block| ((block.start_pc, block.end_pc), block.clone()))
         .collect();
 
-    // create initial cfg using only nodes
-    let mut cfg_runner =
-        cfg_gen::cfg_graph::CFGRunner::new(bytecode_analysed.original_byte_slice().into(), &mut map_to_instructionblocks);
+    // 1. 先收集 executed_blocks
+    let contract_address = args.contract.to_lowercase();
+
+    let mut executed_blocks = std::collections::HashSet::new();
+    if let Some(trace_path) = &args.trace {
+        let trace_steps = cfg_gen::trace::parse_trace_file(trace_path).unwrap();
+        for step in &trace_steps {
+            if let (Some(pc), Some(addr_hex)) = (step.pc, step.address_hex()) {
+                if addr_hex.to_lowercase() == contract_address {
+                    for ((start_pc, end_pc), _block) in &map_to_instructionblocks {
+                        if *start_pc <= pc && pc <= *end_pc {
+                            executed_blocks.insert(*start_pc);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. 创建 CFGRunner
+    let mut cfg_runner = cfg_gen::cfg_graph::CFGRunner::new(
+        bytecode_analysed.original_byte_slice().into(),
+        &mut map_to_instructionblocks,
+    );
+
+    // 3. 设置高亮
+    if !executed_blocks.is_empty() {
+        cfg_runner.set_executed_pcs(executed_blocks);
+    }
+
     if output_handler.show_bare_nodes {
         // write out the cfg with bare nodes only
         let mut file = std::fs::File::create("cfg_nodes_only.dot").expect("bad fs open");

@@ -1,6 +1,9 @@
-# EVM CFG
+# EVM CFG (Trace Highlight Fork)
 
-A fast and accurate CFG generator for EVM bytecode using symbolic stack analysis. View extra [graph visuals](#example-outputs) below.
+A fast and accurate EVM bytecode control flow graph (CFG) generator **with dynamic trace path highlighting**.  
+This fork allows you to visualize not only the static CFG, but also the actual execution path of a transaction, based on EVM trace data.
+
+---
 
 <p align="center">
 <img width="60%" src="examples/basic_code.svg">
@@ -18,45 +21,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Then:
 
 ```bash
-git clone https://github.com/plotchy/evm-cfg
-cd evm-cfg/
-cargo install --path . --locked
-evm-cfg <PATH_OR_BYTECODE> -o cfg.dot --open
+git clone https://github.com/Avery76/evm-cfg-execpath.git
+cd evm-cfg-execpath/
+cargo build --release
+./target/release/evm-cfg mycontract.evm --trace traces/your_trace.txt --contract 0xYourContractAddress --output mytrace.dot
 ```
 
-For working with .dot files, I recommend using the below VSCode extension as it allows powerful graph searching and filtering:
-
-```
-Name: Graphviz Interactive Preview
-Id: tintinweb.graphviz-interactive-preview
-Description: Graphviz (dot) Interactive Preview
-Version: 0.3.5
-Publisher: tintinweb
-VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=tintinweb.graphviz-interactive-preview
-```
-
-- Text search is useful for finding push values and pc values
-- Path filtering is available (can shade all nodes that are not part of a path)
-  - useful to visually prune the graph of nodes belonging to other functions that are not part of the path you are interested in
-
-For minimal dependencies, you can convert the .dot file to a .svg picture for viewing:
-
-```bash
-evm-cfg ./examples/weth9.evm -o ./examples/weth9.svg --open
-
-# which is equivalent to:
-evm-cfg ./examples/weth9.evm -o ./examples/cfg_weth.dot;
-dot -Tsvg ./examples/cfg_weth.dot -o examples/weth9.svg;
-open examples/weth9.svg;
-```
-
-To generate bytecode from a given solidity file, you can use the following:
-
-```bash
-solc <path_to_file> --bin-runtime --no-cbor-metadata --optimize --via-ir
-```
-
-- This will produce the optimized runtime bytecode without the excess metadata attached.
 
 ## How It Works In Phases:
 
@@ -133,6 +103,19 @@ April by @brockelmore:
 
 <img width="100%" src="examples/april.svg">
 
+## About This Project
+
+This project is a fork of [evm-cfg](https://github.com/plotchy/evm-cfg) with additional features.
+
+### Main changes in this fork:
+- Highlighting the actually executed path of a contract in the control flow graph (CFG) based on transaction trace.
+- Support for filtering trace steps by contract address.
+- Saving the highlighted CFG as a DOT file.
+
+Original project: [evm-cfg](https://github.com/plotchy/evm-cfg)
+
+---
+
 ## Contributing
 
 Before opening pull requests consider formatting and linting your code according to:
@@ -141,3 +124,20 @@ Before opening pull requests consider formatting and linting your code according
 cargo fmt -- --check
 cargo +nightly clippy --all --all-features -- -D warnings
 ```
+
+## Features
+
+- Static CFG generation for EVM bytecode.
+- **Dynamic highlighting of the actually executed path** in the CFG, based on transaction trace.
+- Filtering trace steps by contract address.
+- Exporting the highlighted CFG as a DOT file for visualization.
+
+### How Dynamic Path Highlighting Works
+
+This fork highlights the actual execution path of a contract by:
+- Parsing the transaction trace file, which contains a list of execution steps with fields such as `pc` (program counter) and `address`.
+- Filtering steps to only include those matching the specified contract address.
+- Mapping each `pc` value to its corresponding instruction block in the static CFG.
+- Highlighting all blocks and edges that were actually executed during the transaction, based on the trace.
+
+This allows users to visualize not just the static structure of the contract, but also the precise path taken during a specific transaction.

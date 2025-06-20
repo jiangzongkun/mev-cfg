@@ -1,10 +1,10 @@
-use crate::cfg_gen::dasm::*;
-use itertools::Itertools;
-use lazy_static::lazy_static;
+use crate::cfg_gen::dasm::*; 
+use itertools::Itertools; //里面有很多方便的集合操作，比如排序、分组等。
+use lazy_static::lazy_static; //可以让我们定义一些“全局变量”，只初始化一次，后面都能用。
 use petgraph::dot::Dot;
 use petgraph::prelude::*;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     hash::Hash,
 };
@@ -35,7 +35,7 @@ pub enum Edges {
     ConditionTrue,  // Conditional jumpi, true branch
     ConditionFalse, // Conditional jumpi, false branch
     SymbolicJump,   // Jump to a symbolic value
-}
+} //定义了控制流图里“边”的几种类型
 
 impl Debug for Edges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -46,50 +46,56 @@ impl Debug for Edges {
             Edges::SymbolicJump => write!(f, "Symbolic"),
         }
     }
-}
+} // 定义了每种边在打印时怎么显示。
 
-type CFGDag = GraphMap<(u16, u16), Edges, Directed>;
+type CFGDag = GraphMap<(u16, u16), Edges, Directed>; // 定义了一个有向图类型 CFGDag
 
 pub struct CFGRunner<'a> {
     pub cfg_dag: CFGDag,
     pub last_node: Option<(u16, u16)>,
-    pub jumpi_edge: Option<Edges>,
-    pub bytecode: Vec<u8>,
-    pub map_to_instructionblock: &'a mut BTreeMap<(u16, u16), InstructionBlock>,
-}
+    pub jumpi_edge: Option<Edges>, // 记录最后一个节点和 jumpi 边的类型
+    // 这两个字段用于跟踪 CFG 的状态
+    pub bytecode: Vec<u8>, // 存储整个合约的字节码
+    pub map_to_instructionblock: &'a mut BTreeMap<(u16, u16), InstructionBlock>, // 这个映射将 (start_pc, end_pc) 映射到指令块
+    pub executed_pcs: Option<HashSet<u16>>, // 新增：记录执行过的PC
+} // 定义了 CFGRunner 结构体，它包含了控制流图的 DAG、最后一个节点、jumpi 边、字节码和指令块的映射。
 
 impl<'main> CFGRunner<'main> {
-    pub fn new(
-        bytecode: Vec<u8>,
-        map_to_instructionblock: &'main mut BTreeMap<(u16, u16), InstructionBlock>,
-    ) -> Self {
-        let mut cfg_dag: CFGDag = GraphMap::new();
+    pub fn new( // 构造函数，接受字节码和指令块的映射
+        bytecode: Vec<u8>, 
+        map_to_instructionblock: &'main mut BTreeMap<(u16, u16), InstructionBlock>, // 传入字节码和指令块的映射
+    ) -> Self { // 返回一个新的 CFGRunner 实例
+        // 初始化控制流图
+        let mut cfg_dag: CFGDag = GraphMap::new(); // 创建一个新的控制流图
 
         for keys in map_to_instructionblock
-            .keys()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .keys() // 遍历指令块的键
+            .sorted_by(|a, b| a.0.cmp(&b.0)) // 按照 start_pc 排序
         {
-            cfg_dag.add_node(*keys);
-        }
+            cfg_dag.add_node(*keys); // 将每个 (start_pc, end_pc) 节点添加到图中
+        } // 将所有的 (start_pc, end_pc) 节点添加到图中
 
         Self {
             cfg_dag,
-            last_node: None,
+            last_node: None, // 最后一个节点初始化为 None
             jumpi_edge: None,
             bytecode,
             map_to_instructionblock,
-        }
+            executed_pcs: None, // 新增字段初始化为 None
+        } // 返回一个新的 CFGRunner 实例
     }
 
     pub fn initialize_cfg_with_instruction_blocks(
-        &mut self,
-        instruction_blocks: Vec<InstructionBlock>,
+        &mut self, 
+        instruction_blocks: Vec<InstructionBlock>, // 接受一个指令块的向量
+        // 这个向量包含了所有的指令块，每个指令块都有 start_pc 和 end_pc
+        // 以及对应的操作码和栈信息等
     ) -> eyre::Result<()> {
         for block in instruction_blocks {
             self.cfg_dag.add_node((block.start_pc, block.end_pc));
-        }
+        } // 将每个指令块的 (start_pc, end_pc) 添加到控制流图中
         Ok(())
-    }
+    } // 这个函数用于初始化控制流图，将给定的指令块添加到图中。
 
     pub fn form_basic_connections(&mut self) {
         /*
@@ -107,7 +113,7 @@ impl<'main> CFGRunner<'main> {
             .iter()
             .map(|((_entry_pc, _exit_pc), instruction_block)| instruction_block.end_pc)
             .max()
-            .unwrap();
+            .unwrap(); // 获取字节码的最后一个 pc，这个值是所有指令块的最大 end_pc
 
         // We need to iterate over each of the nodes in the graph, and check the end_pc of the (start_pc, end_pc) node
         for ((_entry_pc, _exit_pc), instruction_block) in self.map_to_instructionblock.iter() {
@@ -118,7 +124,7 @@ impl<'main> CFGRunner<'main> {
             let last_op_code = last_op.1;
 
             let direct_push = &instruction_block.stack_info.push_used_for_jump;
-            let direct_push_val = direct_push.as_ref().copied();
+            let direct_push_val = direct_push.as_ref().copied(); 
 
             // Case 1: Jumpi false
             if last_op_code == 0x57 {
@@ -143,7 +149,7 @@ impl<'main> CFGRunner<'main> {
                     let next_node = self.get_node_from_pc(next_pc);
                     self.cfg_dag
                         .add_edge((start_pc, end_pc), next_node, Edges::ConditionTrue);
-                }
+                } 
 
                 // Case 3: Direct Jump
                 if last_op_code == 0x56 {
@@ -171,9 +177,9 @@ impl<'main> CFGRunner<'main> {
                 let next_node = self.get_node_from_pc(next_pc);
                 self.cfg_dag
                     .add_edge((start_pc, end_pc), next_node, Edges::Jump);
-            }
+            } 
         }
-    }
+    } 
 
     pub fn remove_unreachable_instruction_blocks(&mut self) {
         // We need to iterate over the nodes in self.map_to_instructionblock, and remove any that have no incoming/outgoing edges and do not begin with a jumpdest
@@ -249,8 +255,8 @@ impl<'main> CFGRunner<'main> {
         let raw_start_str = r##"digraph G {
     node [shape=box, style="filled, rounded", color="#565f89", fontcolor="#c0caf5", fontname="Helvetica", fillcolor="#24283b"];
     edge [color="#414868", fontcolor="#c0caf5", fontname="Helvetica"];
-    bgcolor="#1a1b26";"##;
-        dot_str.push(raw_start_str.to_string());
+    bgcolor="#1a1b26";"##; 
+        dot_str.push(raw_start_str.to_string()); 
 
         let nodes_and_edges_str = format!(
             "{:?}",
@@ -262,28 +268,41 @@ impl<'main> CFGRunner<'main> {
                     petgraph::dot::Config::EdgeNoLabel
                 ],
                 &|_graph, edge_ref| {
-                    match edge_ref {
-                        (_, _, &Edges::Jump) => "".to_string(),
-                        (_, _, &Edges::ConditionTrue) => {
-                            format!(
+                    let (from, to, edge_type) = edge_ref;
+                    // 判断from和to节点是否都被高亮
+                    let highlight = if let Some(ref pcs) = self.executed_pcs {
+                        let from_block = self.map_to_instructionblock.get(&from).unwrap();
+                        let to_block = self.map_to_instructionblock.get(&to).unwrap();
+                        pcs.contains(&from_block.start_pc) && pcs.contains(&to_block.start_pc)
+                    } else {
+                        false
+                    };
+                    if highlight {
+                        // 高亮边（绿色）
+                        format!(
+                            "label = \"{:?}\" color = \"{}\" penwidth=3",
+                            edge_type,
+                            TOKYO_NIGHT_COLORS.get("green").unwrap()
+                        )
+                    } else {
+                        // 原有逻辑
+                        match edge_type {
+                            Edges::Jump => "".to_string(),
+                            Edges::ConditionTrue => format!(
                                 "label = \"{:?}\" color = \"{}\"",
-                                edge_ref.weight(),
+                                edge_type,
                                 TOKYO_NIGHT_COLORS.get("green").unwrap()
-                            )
-                        }
-                        (_, _, &Edges::ConditionFalse) => {
-                            format!(
+                            ),
+                            Edges::ConditionFalse => format!(
                                 "label = \"{:?}\" color = \"{}\"",
-                                edge_ref.weight(),
+                                edge_type,
                                 TOKYO_NIGHT_COLORS.get("red").unwrap()
-                            )
-                        }
-                        (_, _, &Edges::SymbolicJump) => {
-                            format!(
+                            ),
+                            Edges::SymbolicJump => format!(
                                 "label = \"{:?}\" color = \"{}\", style=\"dotted, bold\"",
-                                edge_ref.weight(),
+                                edge_type,
                                 TOKYO_NIGHT_COLORS.get("yellow").unwrap()
-                            )
+                            ),
                         }
                     }
                 },
@@ -310,6 +329,15 @@ impl<'main> CFGRunner<'main> {
                             TOKYO_NIGHT_COLORS.get("deepred").unwrap()
                         ));
                     }
+                    // 新增代码：如果节点被执行过，则加高亮色
+                    if let Some(ref pcs) = self.executed_pcs {
+                        if pcs.contains(&instruction_block.start_pc) {
+                            node_str.push_str(&format!(
+                                " fillcolor = \"{}\" fontcolor = \"#1a1b26\"",
+                                TOKYO_NIGHT_COLORS.get("green").unwrap()
+                            ));
+                        }
+                    }
                     node_str
                 }
             )
@@ -319,4 +347,16 @@ impl<'main> CFGRunner<'main> {
         dot_str.push(raw_end_str.to_string());
         dot_str.join("\n")
     }
+
+    pub fn set_executed_pcs(&mut self, pcs: HashSet<u16>) {
+        self.executed_pcs = Some(pcs);
+    }
+
+    // 在 dot 导出时，如果节点/边被执行过，则加高亮色
+    // 伪代码示例：
+    // if let Some(ref pcs) = self.executed_pcs {
+    //     if pcs.contains(&node_pc) {
+    //         // 给节点加绿色
+    //     }
+    // }
 }

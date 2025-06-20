@@ -637,6 +637,8 @@ dependencies = [
  "open",
  "petgraph",
  "revm",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

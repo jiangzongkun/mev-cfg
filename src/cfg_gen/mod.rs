@@ -1,10 +1,10 @@
-use crate::cfg_gen::cfg_graph::*;
 use revm::interpreter::opcode::*;
 use std::{collections::BTreeSet, fmt::Debug};
 
-pub mod cfg_graph;
 pub mod dasm;
+pub mod cfg_graph;
 pub mod stack_solve;
+pub mod trace;
 
 pub const BLOCK_ENDERS_U8: [u8; 7] = [JUMP, JUMPI, STOP, RETURN, REVERT, INVALID, SELFDESTRUCT];
 
