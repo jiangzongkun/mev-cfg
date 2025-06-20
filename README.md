@@ -85,15 +85,6 @@ Original project: [evm-cfg](https://github.com/plotchy/evm-cfg)
 
 ---
 
-## Contributing
-
-Before opening pull requests consider formatting and linting your code according to:
-
-```bash
-cargo fmt -- --check
-cargo +nightly clippy --all --all-features -- -D warnings
-```
-
 ## Features
 
 - Static CFG generation for EVM bytecode.
