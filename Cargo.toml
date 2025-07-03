@@ -20,3 +20,7 @@ hex = { package = "const-hex", version = "1.6", features = ["hex"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 eyre = "0.6"
+dotenv = "0.15.0"
+ethers = { version = "2.0", features = ["ws", "rustls"] }
+async-trait = "0.1.68"
+tokio = { version = "1.28.2", features = ["full"] }

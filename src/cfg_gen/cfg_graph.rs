@@ -56,14 +56,14 @@ pub struct CFGRunner<'a> {
     pub jumpi_edge: Option<Edges>, // 记录最后一个节点和 jumpi 边的类型
     // 这两个字段用于跟踪 CFG 的状态
     pub bytecode: Vec<u8>, // 存储整个合约的字节码
-    pub map_to_instructionblock: &'a mut BTreeMap<(u16, u16), InstructionBlock>, // 这个映射将 (start_pc, end_pc) 映射到指令块
+    pub map_to_instructionblock: &'a BTreeMap<(u16, u16), InstructionBlock>, // 这个映射将 (start_pc, end_pc) 映射到指令块
     pub executed_pcs: Option<HashSet<u16>>, // 新增：记录执行过的PC
 } // 定义了 CFGRunner 结构体，它包含了控制流图的 DAG、最后一个节点、jumpi 边、字节码和指令块的映射。
 
 impl<'main> CFGRunner<'main> {
     pub fn new( // 构造函数，接受字节码和指令块的映射
         bytecode: Vec<u8>, 
-        map_to_instructionblock: &'main mut BTreeMap<(u16, u16), InstructionBlock>, // 传入字节码和指令块的映射
+        map_to_instructionblock: &'main BTreeMap<(u16, u16), InstructionBlock>, // 传入字节码和指令块的映射
     ) -> Self { // 返回一个新的 CFGRunner 实例
         // 初始化控制流图
         let mut cfg_dag: CFGDag = GraphMap::new(); // 创建一个新的控制流图
@@ -202,7 +202,6 @@ impl<'main> CFGRunner<'main> {
         // remove the found nodes from the cfg and from the self.map_to_instructionblock
         for node in to_remove {
             self.cfg_dag.remove_node(node);
-            self.map_to_instructionblock.remove(&node);
         }
     }
 

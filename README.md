@@ -1,103 +1,123 @@
-# evm-cfg-execpath
-=======
-# EVM CFG (Trace Highlight Fork)
+# EVM 交易流程可视化引擎 (EVM Transaction Flow Visualizer)
 
-A fast and accurate EVM bytecode control flow graph (CFG) generator **with dynamic trace path highlighting**.  
-This fork allows you to visualize not only the static CFG, but also the actual execution path of a transaction, based on EVM trace data.
+这个工具可以通过分析以太坊交易踪迹文件，自动生成整个交易执行过程的控制流图（CFG），包括跨合约调用的完整执行路径。
 
----
+此工具是对原有 [evm-cfg](https://github.com/plotchy/evm-cfg) 和 [evm-cfg-execpath](https://github.com/Avery76/evm-cfg-execpath) 的重大升级，从单一合约路径分析器升级为全交易流程可视化引擎。
 
-<p align="center">
-<img width="60%" src="examples/basic_code.svg">
-<img width="25%" src="examples/mytrace.svg">
-</p>
+## 功能特点
 
-## Installation
+- 自动解析交易踪迹，识别所有被调用的合约地址
+- 通过配置的RPC节点自动获取合约字节码
+- 为每个合约生成内部控制流图，并高亮实际执行路径
+- 将所有局部路径图按照调用关系拼接成完整的全局执行图
+- 支持识别CALL, DELEGATECALL, STATICCALL等跨合约调用
+- 美观的图形输出，支持导出为DOT格式或直接渲染为图片
 
-First, make sure rust is installed:
+## 安装
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then:
+1. 确保你已安装Rust和Cargo
+2. 克隆仓库并编译：
 
 ```bash
-git clone https://github.com/Avery76/evm-cfg-execpath.git
-cd evm-cfg-execpath/
+git clone https://github.com/yourusername/evm-cfg-execpath.git
+cd evm-cfg-execpath
 cargo build --release
-./target/release/evm-cfg mycontract.evm --trace traces/your_trace.txt --contract 0xYourContractAddress --output mytrace.dot
 ```
 
+## 配置
 
-## How It Works In Phases:
+在项目根目录创建一个`.env`文件，配置RPC节点URL：
 
-### Disassembly
+```
+GETH_API=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+```
 
-Using static analysis, we can split the bytecode up into a structure representable by a graph. The following is done before executing any opcodes through a vm:
+你可以使用Infura、Alchemy或其他以太坊RPC提供商。
 
-- provides contiguous blocks of instructions that are uninterruptible by jumps
-- provides jumptable (jumpdests locs)
-- provides all entry-nodes for blocks (jumptable | jumpi+1 locs | program counter 0)
-- provides "direct" jumps (where push is directly followed by jump)
-  - this info is used to create an opposing and more important "indirect" jump list
-- static analysis unwinds some indirect (yet concrete) locs to direct if the push is still found within the same instruction block
-- provides stack-usage information intra-block to determine how the stack is used for opcodes within the block, and how the stack exits the block
+## 使用方法
 
-### Form Basic Edges
+基本用法：
 
-Jumps and Jumpis with direct push values are connected to their jumpdests. False sides of Jumpis are connected to the next instruction.
+```bash
+./target/release/evm-cfg --trace <PATH_TO_TRACE_FILE> --output <OUTPUT_DOT_FILE>
+```
 
-### Prune the CFG
+参数说明：
 
-Any nodes without incoming edges that also don't begin with a JUMPDEST are impossible to enter, and are removed. This is done to reduce clutter
+- `--trace`: 交易踪迹文件路径，包含debug_traceTransaction的JSON输出
+- `--output`: 输出的DOT文件路径
+- `--render`: (可选) 是否自动渲染为图片格式，默认为false
+- `--format`: (可选) 输出图片格式，仅在render=true时有效，默认为svg
 
-### Symbolic Stack & Traversing
+示例：
 
-Essentially, the only goal left is to connect more edges when jumps are "indirect". Depending on the path the traverser used when coming into the instruction block, it may jump to separate locations. (ie: one traverser may jump to a push it carried over from block A, while another traverser may jump to a push it carried over from block B)
+```bash
+./target/release/evm-cfg --trace ./traces/my_transaction.json --output ./output/transaction_graph.dot --render --format png
+```
 
-Finding these indirect jumps is difficult. Normally, DFS traversers can prevent revisiting previously seen nodes by using a set, but in our case, revisiting a node may be required to carry over a separate push value that jumps to a new location. When we consider allowing revisiting nodes loops immediately become a problem.
+## 获取交易踪迹
 
-The following methods are used to prevent loops from going infinite:
+你可以使用以下方法获取交易踪迹：
 
-- Execute only the following opcodes:
-  - _AND_, PUSH, JUMP, JUMPI, JUMPDEST, RETURN, INVALID, SELFDESTRUCT, STOP
-- Track only possible jump location values on the symbolic stack
-  - in practice this means only tracking pushed u16 values that are also valid jumpdests (contract size is limited to 24kb, so u16 is large enough to represent all possible jumpdests)
-- Prevent traversers from entering blocks that they dont have large enough stack for
-- When traversing to a new block, add the (current_pc, next_pc, symbolic_stack) to a set of visited nodes
-  - future traversers each check to make sure their current_pc, next_pc, and symbolic_stack are not in the set before traversing
+1. 使用geth调试API：
 
-This method is definitely not bulletproof, and there are cases where it will fail to quit out of loops. For this implementation, I only track stack values to 128 depth (max is 1024), and only up to 10 values at once. Both of these metrics are easily adjusted, but I have not ran into any cases where it was necessary to increase them.
+```bash
+curl -X POST --data '{"jsonrpc":"2.0","method":"debug_traceTransaction","params":["0xYOUR_TX_HASH", {"tracer": "callTracer"}],"id":1}' -H "Content-Type: application/json" http://localhost:8545
+```
 
-- Fun Reversing Challenge has at most 3 tracked values on the stack at once, and they each stay within 10 depth
+2. 或者使用etherscan等区块浏览器提供的API
 
-## About This Project
+将获取到的JSON保存为文件，即可作为本工具的输入。
 
-This project is a fork of [evm-cfg](https://github.com/plotchy/evm-cfg) with additional features.
+## 查看结果
 
-### Main changes in this fork:
-- Highlighting the actually executed path of a contract in the control flow graph (CFG) based on transaction trace.
-- Support for filtering trace steps by contract address.
-- Saving the highlighted CFG as a DOT file.
+生成的DOT文件可以使用Graphviz工具查看：
 
-Original project: [evm-cfg](https://github.com/plotchy/evm-cfg)
+```bash
+dot -Tsvg output/transaction_graph.dot -o output/transaction_graph.svg
+```
+
+或者直接使用工具的`--render`选项自动生成图片。
 
 ---
 
-## Features
+## 历史版本特性 (evm-cfg-execpath)
 
-- Static CFG generation for EVM bytecode.
-- **Dynamic highlighting of the actually executed path** in the CFG, based on transaction trace.
-- Filtering trace steps by contract address.
-- Exporting the highlighted CFG as a DOT file for visualization.
+以下是此工具基于的原始版本中的功能，现已扩展：
 
-### How Dynamic Path Highlighting Works
+### 静态分析阶段
 
-This fork highlights the actual execution path of a contract by:
-- Parsing the transaction trace file, which contains a list of execution steps with fields such as `pc` (program counter) and `address`.
-- Filtering steps to only include those matching the specified contract address.
-- Mapping each `pc` value to its corresponding instruction block in the static CFG.
+- 通过静态分析将字节码分割成可由图表示的结构
+- 提供连续的指令块，不会被跳转中断
+- 提供跳转表（jumpdests位置）
+- 提供所有块的入口节点
+- 识别"直接"跳转（当push直接跟随jump时）
+- 静态分析解开一些间接（但具体的）位置，如果push仍在同一指令块中找到
+- 提供块内堆栈使用信息
+
+### 基本边形成
+
+直接push值的Jumps和Jumpis与其jumpdests相连。Jumpis的False侧与下一条指令相连。
+
+### 修剪CFG
+
+没有入边且不以JUMPDEST开始的节点无法进入，将被移除以减少混乱。
+
+### 符号堆栈和遍历
+
+该方法用于防止循环无限进行：
+- 仅执行特定操作码：_AND_, PUSH, JUMP, JUMPI, JUMPDEST, RETURN, INVALID, SELFDESTRUCT, STOP
+- 仅跟踪符号堆栈上可能的跳转位置值
+- 防止遍历器进入堆栈不够大的块
+- 遍历到新块时，将(current_pc, next_pc, symbolic_stack)添加到已访问节点集合
+
+## 贡献
+
+欢迎提交Pull Request或Issues！
+
+## 许可
+
+[MIT License](LICENSE)
 - Highlighting all blocks and edges that were actually executed during the transaction, based on the trace.
 
 This allows users to visualize not just the static structure of the contract, but also the precise path taken during a specific transaction.

@@ -1,2 +1,30 @@
+# Rust编译产物
 /target
+
+# IDE配置
 /.vscode
+/.idea
+
+# 环境变量配置文件
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# 临时文件
+*.rs.bk
+*.swp
+*~
+
+# 输出文件
+*.dot
+*.svg
+*.png
+*.jpg
+*.pdf
+
+# 除了examples目录下的示例文件
+!examples/*.dot
+!examples/*.svg
+!examples/*.png

@@ -21,3 +21,9 @@ impl OutputHandler {
         }
     }
 }
+
+// 导出所有新模块
+pub mod analyzer;
+pub mod blockchain;
+pub mod config;
+pub mod cfg_gen;
