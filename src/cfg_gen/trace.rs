@@ -8,7 +8,8 @@ pub struct TraceStep {
     pub pc: Option<u16>,
     pub op: Option<String>,
     pub gas: Option<u64>,
-    pub gasCost: Option<u64>,
+    #[serde(rename = "gasCost")]
+    pub gas_cost: Option<u64>,
     pub depth: Option<u64>,
     pub error: Option<String>,
     pub stack: Option<Vec<String>>,
@@ -21,12 +22,14 @@ pub struct TraceStep {
 pub struct TraceTransaction {
     pub gas: u64,
     pub failed: bool,
-    pub returnValue: String,
-    pub structLogs: Vec<TraceStep>,
+    #[serde(rename = "returnValue")]
+    pub return_value: String,
+    #[serde(rename = "structLogs")]
+    pub struct_logs: Vec<TraceStep>,
 }
 
 impl TraceStep {
-    /// 将 address 字段（HashMap）转为 0x 开头的 hex 字符串
+    /// Convert address field (HashMap) to a hex string starting with 0x
     pub fn address_hex(&self) -> Option<String> {
         self.address.as_ref().map(|map| {
             let mut bytes: Vec<u8> = vec![];
@@ -39,14 +42,14 @@ impl TraceStep {
         })
     }
 
-    /// 获取H160格式的地址
+    /// Get address in H160 format
     pub fn get_h160_address(&self) -> Option<H160> {
         self.address_hex().and_then(|addr_hex| {
             H160::from_str(&addr_hex).ok()
         })
     }
     
-    /// 判断该步骤是否为合约调用
+    /// Determine if this step is a contract call
     pub fn is_contract_call(&self) -> bool {
         match &self.op {
             Some(op) => {
@@ -56,24 +59,24 @@ impl TraceStep {
         }
     }
     
-    /// 获取合约调用的目标地址（从堆栈中获取）
+    /// Get target address for contract call (from stack)
     pub fn get_call_target(&self) -> Option<H160> {
         if !self.is_contract_call() {
             return None;
         }
         
-        // 不同的调用指令，目标地址在堆栈中的位置不同
+        // Different call instructions have target addresses at different positions in the stack
         // CALL: [gas, address, value, argsOffset, argsLength, retOffset, retLength]
         // DELEGATECALL/STATICCALL: [gas, address, argsOffset, argsLength, retOffset, retLength]
         let stack_pos = match self.op.as_deref() {
-            Some("CALL") => 1, // 地址在第2个位置 (索引1)
-            Some("DELEGATECALL") | Some("STATICCALL") | Some("CALLCODE") => 1, // 地址在第2个位置
+            Some("CALL") => 1, // Address is at the 2nd position (index 1)
+            Some("DELEGATECALL") | Some("STATICCALL") | Some("CALLCODE") => 1, // Address is at the 2nd position
             _ => return None,
         };
         
         self.stack.as_ref().and_then(|stack| {
             if stack.len() > stack_pos {
-                let addr_hex = &stack[stack.len() - 1 - stack_pos]; // 堆栈是从右向左读取的
+                let addr_hex = &stack[stack.len() - 1 - stack_pos]; // Stack is read from right to left
                 if addr_hex.starts_with("0x") {
                     H160::from_str(addr_hex).ok()
                 } else {
@@ -85,30 +88,30 @@ impl TraceStep {
         })
     }
     
-    /// 获取调用类型
+    /// Get call type
     pub fn get_call_type(&self) -> Option<String> {
         self.op.clone()
     }
 }
 
-/// 解析交易踪迹文件
+/// Parse transaction trace file
 pub fn parse_trace_file(path: &str) -> eyre::Result<Vec<TraceStep>> {
     let data = std::fs::read_to_string(path)?;
     
-    // 尝试直接解析为Step数组
+    // Try to parse directly as an array of steps
     let steps_result: Result<Vec<TraceStep>, _> = serde_json::from_str(&data);
     
     match steps_result {
         Ok(steps) => Ok(steps),
         Err(_) => {
-            // 尝试解析为TraceTransaction格式
+            // Try to parse as TraceTransaction format
             let trace: TraceTransaction = serde_json::from_str(&data)?;
-            Ok(trace.structLogs)
+            Ok(trace.struct_logs)
         }
     }
 }
 
-/// 从踪迹中提取所有涉及的合约地址
+/// Extract all contract addresses involved in the trace
 pub fn extract_contract_addresses(steps: &[TraceStep]) -> HashSet<H160> {
     let mut addresses = HashSet::new();
     
@@ -121,7 +124,7 @@ pub fn extract_contract_addresses(steps: &[TraceStep]) -> HashSet<H160> {
     addresses
 }
 
-/// 从踪迹中提取调用关系
+/// Extract call relationships from the trace
 pub struct CallEdge {
     pub from_addr: H160,
     pub from_pc: u16,
@@ -160,7 +163,7 @@ pub fn extract_call_edges(steps: &[TraceStep]) -> Vec<CallEdge> {
     edges
 }
 
-/// 按地址过滤踪迹步骤
+/// Filter trace steps by address
 pub fn filter_steps_by_address(steps: &[TraceStep], address: &H160) -> Vec<TraceStep> {
     steps
         .iter()
@@ -175,7 +178,7 @@ pub fn filter_steps_by_address(steps: &[TraceStep], address: &H160) -> Vec<Trace
         .collect()
 }
 
-/// 获取合约执行过的PC值集合
+/// Get the set of PC values executed by the contract
 pub fn get_executed_pcs(steps: &[TraceStep]) -> HashSet<u16> {
     steps
         .iter()

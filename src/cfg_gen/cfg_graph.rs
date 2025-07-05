@@ -1,6 +1,6 @@
 use crate::cfg_gen::dasm::*; 
-use itertools::Itertools; //里面有很多方便的集合操作，比如排序、分组等。
-use lazy_static::lazy_static; //可以让我们定义一些“全局变量”，只初始化一次，后面都能用。
+use itertools::Itertools; // Contains many useful collection operations, such as sorting, grouping, etc.
+use lazy_static::lazy_static; // Allows us to define "global variables" that are initialized only once and can be used later.
 use petgraph::dot::Dot;
 use petgraph::prelude::*;
 use std::{
@@ -35,7 +35,7 @@ pub enum Edges {
     ConditionTrue,  // Conditional jumpi, true branch
     ConditionFalse, // Conditional jumpi, false branch
     SymbolicJump,   // Jump to a symbolic value
-} //定义了控制流图里“边”的几种类型
+} // Defines different types of edges in the control flow graph
 
 impl Debug for Edges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -46,56 +46,56 @@ impl Debug for Edges {
             Edges::SymbolicJump => write!(f, "Symbolic"),
         }
     }
-} // 定义了每种边在打印时怎么显示。
+} // Defines how each edge type is displayed when printed.
 
-type CFGDag = GraphMap<(u16, u16), Edges, Directed>; // 定义了一个有向图类型 CFGDag
+type CFGDag = GraphMap<(u16, u16), Edges, Directed>; // Defines a directed graph type CFGDag
 
 pub struct CFGRunner<'a> {
     pub cfg_dag: CFGDag,
     pub last_node: Option<(u16, u16)>,
-    pub jumpi_edge: Option<Edges>, // 记录最后一个节点和 jumpi 边的类型
-    // 这两个字段用于跟踪 CFG 的状态
-    pub bytecode: Vec<u8>, // 存储整个合约的字节码
-    pub map_to_instructionblock: &'a BTreeMap<(u16, u16), InstructionBlock>, // 这个映射将 (start_pc, end_pc) 映射到指令块
-    pub executed_pcs: Option<HashSet<u16>>, // 新增：记录执行过的PC
-} // 定义了 CFGRunner 结构体，它包含了控制流图的 DAG、最后一个节点、jumpi 边、字节码和指令块的映射。
+    pub jumpi_edge: Option<Edges>, // Records the last node and jumpi edge type
+    // These two fields are used to track the state of the CFG
+    pub bytecode: Vec<u8>, // Stores the entire contract bytecode
+    pub map_to_instructionblock: &'a BTreeMap<(u16, u16), InstructionBlock>, // This mapping maps (start_pc, end_pc) to instruction blocks
+    pub executed_pcs: Option<HashSet<u16>>, // New: records executed PCs
+} // Defines the CFGRunner struct, which contains the DAG of the control flow graph, the last node, jumpi edge, bytecode, and mapping to instruction blocks.
 
 impl<'main> CFGRunner<'main> {
-    pub fn new( // 构造函数，接受字节码和指令块的映射
+    pub fn new( // Constructor, accepts bytecode and instruction block mapping
         bytecode: Vec<u8>, 
-        map_to_instructionblock: &'main BTreeMap<(u16, u16), InstructionBlock>, // 传入字节码和指令块的映射
-    ) -> Self { // 返回一个新的 CFGRunner 实例
-        // 初始化控制流图
-        let mut cfg_dag: CFGDag = GraphMap::new(); // 创建一个新的控制流图
+        map_to_instructionblock: &'main BTreeMap<(u16, u16), InstructionBlock>, // Pass in the mapping of bytecode to instruction blocks
+    ) -> Self { // Return a new CFGRunner instance
+        // Initialize control flow graph
+        let mut cfg_dag: CFGDag = GraphMap::new(); // Create a new control flow graph
 
         for keys in map_to_instructionblock
-            .keys() // 遍历指令块的键
-            .sorted_by(|a, b| a.0.cmp(&b.0)) // 按照 start_pc 排序
+            .keys() // Iterate through the keys of instruction blocks
+            .sorted_by(|a, b| a.0.cmp(&b.0)) // Sort by start_pc
         {
-            cfg_dag.add_node(*keys); // 将每个 (start_pc, end_pc) 节点添加到图中
-        } // 将所有的 (start_pc, end_pc) 节点添加到图中
+            cfg_dag.add_node(*keys); // Add each (start_pc, end_pc) node to the graph
+        } // Add all (start_pc, end_pc) nodes to the graph
 
         Self {
             cfg_dag,
-            last_node: None, // 最后一个节点初始化为 None
+            last_node: None, // Initialize the last node as None
             jumpi_edge: None,
             bytecode,
             map_to_instructionblock,
-            executed_pcs: None, // 新增字段初始化为 None
-        } // 返回一个新的 CFGRunner 实例
+            executed_pcs: None, // Initialize the new field as None
+        } // Return a new CFGRunner instance
     }
 
     pub fn initialize_cfg_with_instruction_blocks(
         &mut self, 
-        instruction_blocks: Vec<InstructionBlock>, // 接受一个指令块的向量
-        // 这个向量包含了所有的指令块，每个指令块都有 start_pc 和 end_pc
-        // 以及对应的操作码和栈信息等
+        instruction_blocks: Vec<InstructionBlock>, // Accept a vector of instruction blocks
+        // This vector contains all instruction blocks, each with start_pc and end_pc
+        // as well as corresponding opcodes and stack information
     ) -> eyre::Result<()> {
         for block in instruction_blocks {
             self.cfg_dag.add_node((block.start_pc, block.end_pc));
-        } // 将每个指令块的 (start_pc, end_pc) 添加到控制流图中
+        } // Add each instruction block's (start_pc, end_pc) to the control flow graph
         Ok(())
-    } // 这个函数用于初始化控制流图，将给定的指令块添加到图中。
+    } // This function initializes the control flow graph by adding the given instruction blocks to the graph.
 
     pub fn form_basic_connections(&mut self) {
         /*
@@ -113,7 +113,7 @@ impl<'main> CFGRunner<'main> {
             .iter()
             .map(|((_entry_pc, _exit_pc), instruction_block)| instruction_block.end_pc)
             .max()
-            .unwrap(); // 获取字节码的最后一个 pc，这个值是所有指令块的最大 end_pc
+            .unwrap(); // Get the last pc in the bytecode, which is the maximum end_pc of all instruction blocks
 
         // We need to iterate over each of the nodes in the graph, and check the end_pc of the (start_pc, end_pc) node
         for ((_entry_pc, _exit_pc), instruction_block) in self.map_to_instructionblock.iter() {
@@ -268,7 +268,7 @@ impl<'main> CFGRunner<'main> {
                 ],
                 &|_graph, edge_ref| {
                     let (from, to, edge_type) = edge_ref;
-                    // 判断from和to节点是否都被高亮
+                    // Check if both from and to nodes are highlighted
                     let highlight = if let Some(ref pcs) = self.executed_pcs {
                         let from_block = self.map_to_instructionblock.get(&from).unwrap();
                         let to_block = self.map_to_instructionblock.get(&to).unwrap();
@@ -277,14 +277,14 @@ impl<'main> CFGRunner<'main> {
                         false
                     };
                     if highlight {
-                        // 高亮边（绿色）
+                        // Highlight edge (green)
                         format!(
                             "label = \"{:?}\" color = \"{}\" penwidth=3",
                             edge_type,
                             TOKYO_NIGHT_COLORS.get("green").unwrap()
                         )
                     } else {
-                        // 原有逻辑
+                        // Original logic
                         match edge_type {
                             Edges::Jump => "".to_string(),
                             Edges::ConditionTrue => format!(
@@ -328,7 +328,7 @@ impl<'main> CFGRunner<'main> {
                             TOKYO_NIGHT_COLORS.get("deepred").unwrap()
                         ));
                     }
-                    // 新增代码：如果节点被执行过，则加高亮色
+                    // New code: If the node has been executed, add highlight color
                     if let Some(ref pcs) = self.executed_pcs {
                         if pcs.contains(&instruction_block.start_pc) {
                             node_str.push_str(&format!(
@@ -350,12 +350,4 @@ impl<'main> CFGRunner<'main> {
     pub fn set_executed_pcs(&mut self, pcs: HashSet<u16>) {
         self.executed_pcs = Some(pcs);
     }
-
-    // 在 dot 导出时，如果节点/边被执行过，则加高亮色
-    // 伪代码示例：
-    // if let Some(ref pcs) = self.executed_pcs {
-    //     if pcs.contains(&node_pc) {
-    //         // 给节点加绿色
-    //     }
-    // }
 }

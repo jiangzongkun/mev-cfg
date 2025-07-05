@@ -1,30 +1,30 @@
-# Rust编译产物
+# Rust compilation artifacts
 /target
 
-# IDE配置
+# IDE configuration
 /.vscode
 /.idea
 
-# 环境变量配置文件
+# Environment variable configuration file
 .env
 .env.development.local
 .env.test.local
 .env.production.local
 .env.local
 
-# 临时文件
+# Temporary files
 *.rs.bk
 *.swp
 *~
 
-# 输出文件
+# Output files
 *.dot
 *.svg
 *.png
 *.jpg
 *.pdf
 
-# 除了examples目录下的示例文件
+# Except for example files in the examples directory
 !examples/*.dot
 !examples/*.svg
 !examples/*.png

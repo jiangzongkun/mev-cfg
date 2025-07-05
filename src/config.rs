@@ -8,12 +8,12 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        // 加载 .env 文件
+        // Load .env file
         dotenv().ok();
 
-        // 读取 RPC URL
+        // Read RPC URL
         let rpc_url = env::var("GETH_API")
-            .map_err(|_| eyre!("未找到 GETH_API 环境变量。请在 .env 文件中配置 GETH_API=<您的RPC节点URL>"))?;
+            .map_err(|_| eyre!("GETH_API environment variable not found. Please configure GETH_API=<Your RPC Node URL> in the .env file"))?;
 
         Ok(Config { rpc_url })
     }

@@ -1,82 +1,132 @@
-use clap::{Parser, ValueHint};
+use clap::{Parser, ValueHint, ArgGroup};
 use evm_cfg::{
     analyzer::TransactionAnalyzer,
-    blockchain::EthersBlockchainService,
+    blockchain::{EthersBlockchainService, save_transaction_trace},
     config::Config,
 };
 use eyre::{eyre, Result};
 use std::path::Path;
+use ethers::types::H256;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "EVM交易流程可视化引擎", long_about = None)]
+#[command(author, version, about = "EVM Transaction Flow Visualization Engine", long_about = None)]
+#[clap(group(ArgGroup::new("input").required(true).args(&["trace", "tx_hash"])))]
 struct Args {
-    /// 交易踪迹文件路径，包含debug_traceTransaction的输出结果（JSON格式）
+    /// Path to transaction trace file containing debug_traceTransaction output (JSON format)
     #[clap(long, value_hint = ValueHint::FilePath, value_name = "PATH_TO_TRACE_FILE")]
-    pub trace: String,
+    pub trace: Option<String>,
 
-    /// 输出的dot文件路径
+    /// Transaction hash (automatically fetch trace)
+    #[clap(long, value_name = "TRANSACTION_HASH")]
+    pub tx_hash: Option<String>,
+
+    /// Output DOT file path
     #[clap(long, value_hint = ValueHint::FilePath, value_name = "OUTPUT_DOT_FILE")]
-    pub output: String,
+    pub output: Option<String>,
 
-    /// 是否自动转换为图片格式（需要安装Graphviz）
+    /// Automatically convert to image format (requires Graphviz)
     #[clap(long, default_value = "false")]
     pub render: bool,
 
-    /// 输出图片格式（仅在render=true时有效）
+    /// Output image format (only valid when render=true)
     #[clap(long, default_value = "svg")]
     pub format: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 解析命令行参数
+    // Parse command line arguments
     let args = Args::parse();
     
-    // 检查文件路径
-    if !Path::new(&args.trace).exists() {
-        return Err(eyre!("交易踪迹文件不存在: {}", args.trace));
-    }
-    
-    // 加载配置
+    // Load configuration
     let config = Config::new().map_err(|e| {
-        eyre!("配置加载失败: {}。请确保在项目根目录下创建.env文件并配置GETH_API", e)
+        eyre!("Configuration loading failed: {}. Please ensure you have created a .env file in the project root and configured GETH_API", e)
     })?;
     
-    println!("🔍 正在分析交易踪迹...");
-    
-    // 从踪迹文件创建分析器
-    let mut analyzer = TransactionAnalyzer::from_trace_file(&args.trace)?;
-    
-    println!("📝 识别到 {} 个合约地址", analyzer.contract_addresses.len());
-    
-    // 创建区块链服务
+    // Create blockchain service
     let blockchain_service = EthersBlockchainService::new(&config.rpc_url)?;
     
-    // 获取所有合约字节码
-    println!("⬇️ 正在从RPC节点获取合约字节码...");
-    analyzer.fetch_bytecodes(&blockchain_service).await?;
-    println!("✅ 成功获取 {} 个合约的字节码", analyzer.bytecode_cache.cache.len());
+    // Determine transaction trace path (from file or via transaction hash)
+    let trace_path = if let Some(trace_file) = &args.trace {
+        // Use user-provided trace file
+        if !Path::new(trace_file).exists() {
+            return Err(eyre!("Transaction trace file does not exist: {}", trace_file));
+        }
+        trace_file.clone()
+    } else if let Some(tx_hash_str) = &args.tx_hash {
+        // Get trace from transaction hash
+        // Parse transaction hash
+        let tx_hash = tx_hash_str.parse::<H256>()
+            .map_err(|_| eyre!("Invalid transaction hash: {}", tx_hash_str))?;
+        
+        println!("🔍 Fetching trace for transaction {} from blockchain...", tx_hash);
+        
+        // Get and save trace
+        let trace_file = save_transaction_trace(tx_hash, &blockchain_service).await?;
+        println!("✅ Transaction trace saved to {}", trace_file);
+        
+        trace_file
+    } else {
+        return Err(eyre!("You must provide either a transaction trace file (--trace) or a transaction hash (--tx_hash)"));
+    };
     
-    // 生成每个合约的CFG
-    println!("🔄 正在生成每个合约的控制流图...");
+    // Determine output file path
+    let output_path = if let Some(output_file) = &args.output {
+        output_file.clone()
+    } else if let Some(tx_hash) = &args.tx_hash {
+        // Name output file after transaction hash and save in Results directory
+        let output_dir = "Results";
+        if !Path::new(output_dir).exists() {
+            std::fs::create_dir_all(output_dir)?;
+        }
+        format!("{}/{}.dot", output_dir, tx_hash)
+    } else {
+        // Generate output path from trace file path
+        let trace_filename = Path::new(&trace_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output");
+        
+        let output_dir = "Results";
+        if !Path::new(output_dir).exists() {
+            std::fs::create_dir_all(output_dir)?;
+        }
+        
+        format!("{}/{}.dot", output_dir, trace_filename.replace(".txt", ""))
+    };
+    
+    println!("🔍 Analyzing transaction trace...");
+    
+    // Create analyzer from trace file
+    let mut analyzer = TransactionAnalyzer::from_trace_file(&trace_path)?;
+    
+    println!("📝 Identified {} contract addresses", analyzer.contract_addresses.len());
+    
+    // Get all contract bytecodes
+    println!("⬇️ Fetching contract bytecodes from RPC node...");
+    analyzer.fetch_bytecodes(&blockchain_service).await?;
+    println!("✅ Successfully fetched bytecodes for {} contracts", analyzer.bytecode_cache.cache.len());
+    
+    // Generate CFG for each contract
+    println!("🔄 Generating control flow graphs for each contract...");
     analyzer.generate_contract_cfgs()?;
     
-    // 构建全局交易图
-    println!("🔗 正在构建全局交易执行图...");
+    // Build global transaction graph
+    println!("🔗 Building global transaction execution graph...");
     analyzer.build_global_transaction_graph()?;
     
-    // 保存为dot文件
-    println!("💾 正在保存全局交易图到 {}...", args.output);
-    analyzer.save_global_graph_dot(&args.output)?;
+    // Save to dot file
+    println!("💾 Saving global transaction graph to {}...", output_path);
+    analyzer.save_global_graph_dot(&output_path)?;
     
-    // 如果需要，转换为图片
+    // Convert to image if requested
     if args.render {
-        let output_image = args.output.replace(".dot", &format!(".{}", args.format));
-        println!("🎨 正在渲染图片到 {}...", output_image);
-        analyzer.convert_to_image(&args.output, &output_image)?;
+        let output_image = output_path.replace(".dot", &format!(".{}", args.format));
+        println!("🎨 Rendering image to {}...", output_image);
+        analyzer.convert_to_image(&output_path, &output_image)?;
     }
     
-    println!("✨ 分析完成！");
+    println!("✨ Analysis complete!");
     
     Ok(())
 }

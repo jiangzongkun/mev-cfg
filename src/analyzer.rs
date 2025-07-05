@@ -8,9 +8,8 @@ use eyre::{eyre, Result};
 use ethers::types::{H160, Bytes};
 use fnv::FnvBuildHasher;
 use petgraph::{
-    dot::Dot, 
     graph::DiGraph,
-    visit::{IntoEdgeReferences, EdgeRef}
+    visit::{EdgeRef}
 };
 use revm::{
     primitives::{Bytecode as RevmBytecode},
@@ -20,26 +19,38 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write;
 use std::path::Path;
 
-/// 表示一个合约的控制流图和执行信息
+/// Represents a contract's control flow graph and execution information
 pub struct ContractCFG {
     pub address: H160,
     pub cfg_runner: CFGRunner<'static>,
     pub executed_pcs: HashSet<u16>,
 }
 
-/// 全局交易图中的节点
+/// Node in the global transaction graph
 #[derive(Clone, Debug)]
 pub struct TransactionNode {
     pub contract_address: H160,
     pub pc: u16,
     pub instruction: String,
+    pub contains_sstore: bool,  // New field, marks whether it contains SSTORE opcode
 }
 
-/// 全局交易图中的边
+impl Default for TransactionNode {
+    fn default() -> Self {
+        Self {
+            contract_address: H160::zero(),
+            pc: 0,
+            instruction: String::new(),
+            contains_sstore: false,
+        }
+    }
+}
+
+/// Edge in the global transaction graph
 #[derive(Clone, Debug)]
 pub enum TransactionEdge {
-    Internal(String),    // 合约内部流转，字符串表示边的类型
-    External(String),    // 合约间调用，字符串表示调用类型 (CALL, DELEGATECALL等)
+    Internal(String),    // Internal contract flow, string represents edge type
+    External(String),    // Cross-contract call, string represents call type (CALL, DELEGATECALL, etc.)
 }
 
 pub struct TransactionAnalyzer {
@@ -79,9 +90,9 @@ impl TransactionAnalyzer {
         Ok(())
     }
     
-    /// 为每个合约生成CFG
+    /// Generate CFG for each contract
     pub fn generate_contract_cfgs(&mut self) -> Result<()> {
-        // 创建空对象防止所有权问题
+        // Create empty objects to prevent ownership issues
         let mut contract_cfgs = HashMap::new();
         
         for (address, bytecode) in &self.bytecode_cache.cache {
@@ -93,15 +104,15 @@ impl TransactionAnalyzer {
         Ok(())
     }
     
-    /// 为单个合约生成CFG
+    /// Generate CFG for a single contract
     fn generate_single_contract_cfg(&self, address: &H160, bytecode: &Bytes) -> Result<ContractCFG> {
-        // 转换为revm需要的格式
+        // Convert to the format required by revm
         let contract_data = bytecode.to_vec().into();
         let bytecode_analysed = to_analysed(RevmBytecode::new_raw(contract_data));
         
-        // 获取有效跳转目标
+        // Get valid jump targets
         let revm_jumptable = bytecode_analysed.legacy_jump_table()
-            .ok_or_else(|| eyre!("revm字节码分析失败"))?;
+            .ok_or_else(|| eyre!("revm bytecode analysis failed"))?;
             
         let mut set_all_valid_jumpdests: HashSet<u16, FnvBuildHasher> = HashSet::default();
         let slice = revm_jumptable.as_slice();
@@ -114,38 +125,38 @@ impl TransactionAnalyzer {
             }
         }
         
-        // 解析指令块
+        // Parse instruction blocks
         let mut instruction_blocks = dasm::disassemble(bytecode_analysed.original_byte_slice().into());
         for block in &mut instruction_blocks {
             block.analyze_stack_info();
         }
         
-        // 创建指令块映射
+        // Create instruction block mapping
         let map_to_instructionblocks: BTreeMap<(u16, u16), InstructionBlock> = instruction_blocks
             .iter()
             .map(|block| ((block.start_pc, block.end_pc), block.clone()))
             .collect();
             
-        // 获取该合约的执行步骤
+        // Get execution steps for this contract
         let filtered_steps = trace::filter_steps_by_address(&self.trace_steps, address);
         let executed_pcs = trace::get_executed_pcs(&filtered_steps);
         
-        // 创建CFG
+        // Create CFG
         let mut cfg_runner = CFGRunner::new(
             bytecode_analysed.original_byte_slice().into(),
             Box::leak(Box::new(map_to_instructionblocks)),
         );
         
-        // 设置执行过的PC
+        // Set executed PCs
         cfg_runner.set_executed_pcs(executed_pcs.clone());
         
-        // 建立基本连接
+        // Establish basic connections
         cfg_runner.form_basic_connections();
         
-        // 移除不可达的指令块
+        // Remove unreachable instruction blocks
         cfg_runner.remove_unreachable_instruction_blocks();
         
-        // 解决间接跳转
+        // Resolve indirect jumps
         crate::cfg_gen::stack_solve::symbolic_cycle(
             &mut cfg_runner,
             &set_all_valid_jumpdests,
@@ -159,44 +170,48 @@ impl TransactionAnalyzer {
         })
     }
     
-    /// 创建全局交易图
+    /// Create global transaction graph
     pub fn build_global_transaction_graph(&mut self) -> Result<()> {
-        // 为每个合约的CFG中的节点创建全局图节点
+        // Create global graph nodes for each node in contract CFGs
         for (address, contract_cfg) in &self.contract_cfgs {
             for node in contract_cfg.cfg_runner.cfg_dag.nodes() {
-                // 只添加被执行过的节点
+                // Only add executed nodes
                 if contract_cfg.executed_pcs.contains(&node.0) {
                     let instruction_block = contract_cfg.cfg_runner.map_to_instructionblock.get(&node).unwrap();
                     let pc = instruction_block.start_pc;
                     
-                    // 创建交易节点
+                    // Check if it contains SSTORE opcode
+                    let contains_sstore = instruction_block.ops.iter().any(|(_, op, _)| *op == 0x55); // SSTORE opcode is 0x55
+                    
+                    // Create transaction node
                     let tx_node = TransactionNode {
                         contract_address: *address,
                         pc,
                         instruction: instruction_block.to_string(),
+                        contains_sstore, // Set SSTORE flag
                     };
                     
-                    // 添加到全局图
+                    // Add to global graph
                     let node_idx = self.global_graph.add_node(tx_node);
                     self.node_mapping.insert((*address, pc), node_idx);
                 }
             }
         }
         
-        // 添加合约内部边
+        // Add internal edges
         for (address, contract_cfg) in &self.contract_cfgs {
             for edge in contract_cfg.cfg_runner.cfg_dag.all_edges() {
                 let (from_node, to_node, edge_type) = edge;
                 let from_pc = from_node.0;
                 let to_pc = to_node.0;
                 
-                // 只添加两端都被执行过的边
+                // Only add edges where both endpoints were executed
                 if contract_cfg.executed_pcs.contains(&from_pc) && contract_cfg.executed_pcs.contains(&to_pc) {
                     if let (Some(from_idx), Some(to_idx)) = (
                         self.node_mapping.get(&(*address, from_pc)),
                         self.node_mapping.get(&(*address, to_pc))
                     ) {
-                        // 添加内部边
+                        // Add internal edge
                         let edge_label = format!("{:?}", edge_type);
                         self.global_graph.add_edge(
                             *from_idx,
@@ -208,14 +223,14 @@ impl TransactionAnalyzer {
             }
         }
         
-        // 添加合约间调用边
+        // Add cross-contract call edges
         for edge in &self.call_edges {
             if let (Some(from_idx), Some(to_idx)) = (
                 self.node_mapping.get(&(edge.from_addr, edge.from_pc)),
-                // 假设目标合约的入口PC为0
+                // Assume target contract's entry PC is 0
                 self.node_mapping.get(&(edge.to_addr, 0))
             ) {
-                // 添加外部调用边
+                // Add external call edge
                 self.global_graph.add_edge(
                     *from_idx,
                     *to_idx,
@@ -227,7 +242,7 @@ impl TransactionAnalyzer {
         Ok(())
     }
     
-    /// 将全局交易图导出为dot格式
+    /// Export global transaction graph in DOT format
     pub fn export_global_graph_dot(&self) -> String {
         let mut dot_str = String::new();
         
@@ -237,14 +252,25 @@ impl TransactionAnalyzer {
         writeln!(&mut dot_str, "    edge [color=\"#414868\", fontcolor=\"#c0caf5\", fontname=\"Helvetica\"];").unwrap();
         writeln!(&mut dot_str, "    bgcolor=\"#1a1b26\";").unwrap();
         
-        // 添加节点
+        // Add nodes
         for (idx, node) in self.global_graph.node_indices().zip(self.global_graph.node_weights()) {
             let addr_str = format!("{:?}", node.contract_address);
             let label = format!("{}\\nPC: {}\\n{}", addr_str, node.pc, node.instruction.replace('"', "\\\""));
-            writeln!(&mut dot_str, "    {} [label=\"{}\"];", idx.index(), label).unwrap();
+            
+            // If node contains SSTORE opcode, highlight it with special style (purple)
+            if node.contains_sstore {
+                writeln!(
+                    &mut dot_str,
+                    "    {} [label=\"{}\", fillcolor=\"#bb9af7\", fontcolor=\"#1a1b26\", penwidth=2];",
+                    idx.index(),
+                    label
+                ).unwrap();
+            } else {
+                writeln!(&mut dot_str, "    {} [label=\"{}\"];", idx.index(), label).unwrap();
+            }
         }
         
-        // 添加边
+        // Add edges
         for edge in self.global_graph.edge_references() {
             let (from, to) = (edge.source().index(), edge.target().index());
             
@@ -270,14 +296,14 @@ impl TransactionAnalyzer {
         dot_str
     }
     
-    /// 保存全局交易图为dot文件
+    /// Save global transaction graph to DOT file
     pub fn save_global_graph_dot(&self, output_path: &str) -> Result<()> {
         let dot_str = self.export_global_graph_dot();
         std::fs::write(output_path, dot_str)?;
         Ok(())
     }
     
-    /// 转换为其他格式（如PNG、SVG等）
+    /// Convert to other formats (PNG, SVG, etc.)
     pub fn convert_to_image(&self, dot_path: &str, output_path: &str) -> Result<()> {
         let ext = Path::new(output_path).extension().and_then(|s| s.to_str()).unwrap_or("png");
         
@@ -289,7 +315,7 @@ impl TransactionAnalyzer {
             .output()?;
             
         if !output.status.success() {
-            return Err(eyre!("转换失败: {}", String::from_utf8_lossy(&output.stderr)));
+            return Err(eyre!("Conversion failed: {}", String::from_utf8_lossy(&output.stderr)));
         }
         
         Ok(())
