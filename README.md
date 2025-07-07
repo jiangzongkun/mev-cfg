@@ -2,7 +2,7 @@
 
 This tool analyzes Ethereum transaction trace files to automatically generate control flow graphs (CFGs) for the entire transaction execution process, including cross-contract call paths.
 
-This tool is a major upgrade to the original [evm-cfg](https://github.com/plotchy/evm-cfg) and [evm-cfg-execpath](https://github.com/Avery76/evm-cfg-execpath), evolving from a single-contract path analyzer to a complete transaction flow visualization engine.
+This tool is forked from the original [evm-cfg](https://github.com/plotchy/evm-cfg) and [evm-cfg-execpath](https://github.com/Avery76/evm-cfg-execpath).
 
 ## Features
 
@@ -25,7 +25,7 @@ This tool is a major upgrade to the original [evm-cfg](https://github.com/plotch
 
 ```bash
 git clone https://github.com/yourusername/mev_vis.git
-cd mev_vis
+cd mev-cfg
 cargo build --release
 ```
 
@@ -46,11 +46,12 @@ You can use Infura, Alchemy, or other Ethereum RPC providers.
 Basic usage:
 
 ```bash
-# Method 1: Provide an existing trace file
+# Method 1: Directly provide a transaction hash (automatic trace retrieval)
+./target/release/evm-cfg --tx-hash <TRANSACTION_HASH>
+
+# Method 2: Provide an existing trace file
 ./target/release/evm-cfg --trace <PATH_TO_TRACE_FILE>
 
-# Method 2: Directly provide a transaction hash (automatic trace retrieval)
-./target/release/evm-cfg --tx-hash <TRANSACTION_HASH>
 ```
 
 ### Simplified Method (Recommended)
@@ -61,11 +62,11 @@ A simplified wrapper script `mev-cfg` is provided for convenience:
 # First, make the script executable (only needed once)
 chmod +x mev-cfg
 
-# Method 1: Provide an existing trace file
-./mev-cfg --trace <PATH_TO_TRACE_FILE>
-
-# Method 2: Directly provide a transaction hash (automatic trace retrieval)
+# Method 1: Directly provide a transaction hash (automatic trace retrieval)
 ./mev-cfg --tx-hash <TRANSACTION_HASH>
+
+# Method 2: Provide an existing trace file
+./mev-cfg --trace <PATH_TO_TRACE_FILE>
 ```
 
 The `mev-cfg` script automatically checks if a release build exists and creates one if needed, then forwards all arguments to the executable.
@@ -81,11 +82,8 @@ The `mev-cfg` script automatically checks if a release build exists and creates 
 Examples:
 
 ```bash
-# Using an existing trace file
-./target/release/evm-cfg --trace ./traces/my_transaction.json --render
-
 # Directly using a transaction hash (automatic processing)
-./target/release/evm-cfg --tx-hash 0xef39c19ceb07373914204e76019943d57e5c4e99760ec2a337a6e9d38a315fbc --render
+./target/release/evm-cfg --tx-hash 0xef39c19ceb07373914204e76019943d57e5c4e99760ec2a337a6e9d38a315fbc
 ```
 
 ## Output Structure
@@ -106,17 +104,6 @@ If you use the `--render` option, it will also create image files (SVG by defaul
 
 ## Obtaining Transaction Traces
 
-You can obtain transaction traces using the following methods:
-
-1. Using the geth debug API:
-
-```bash
-curl -X POST --data '{"jsonrpc":"2.0","method":"debug_traceTransaction","params":["0xYOUR_TX_HASH", {"tracer": "callTracer"}],"id":1}' -H "Content-Type: application/json" http://localhost:8545
-```
-
-2. Or using APIs provided by block explorers like Etherscan
-
-Save the retrieved JSON as a file to use as input for this tool.
 
 ## Viewing Results
 
@@ -150,9 +137,6 @@ This tool combines static analysis with execution traces to produce comprehensiv
 4. **Operation-Based Coloring**: Differentiates nodes based on their operations (SSTORE, ADD/SUB, etc.)
 5. **Cross-Contract Flow**: Links individual contract CFGs to show the complete transaction flow
 
-## Contributing
-
-Pull Requests or Issues are welcome!
 
 ## License
 
