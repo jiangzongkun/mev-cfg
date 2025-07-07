@@ -11,8 +11,12 @@ This tool is a major upgrade to the original [evm-cfg](https://github.com/plotch
 - Generates internal control flow graphs for each contract with highlighted execution paths
 - Combines all local path graphs into a complete global execution graph based on call relationships
 - Supports identification of CALL, DELEGATECALL, STATICCALL and other cross-contract calls
-- Highlights all nodes containing SSTORE operations (state modifications)
+- Highlights nodes with different colors based on operations:
+  - Nodes with SSTORE operations: Pink (#f7768e)
+  - Nodes with ADD/SUB operations: Orange (#ff9e64)
+  - Other executed nodes: Green (#9ece6a)
 - Provides aesthetically pleasing graph output, with export to DOT format or direct rendering to images
+- Automatically saves the trace file and all contract CFGs in a structured directory
 
 ## Installation
 
@@ -20,8 +24,8 @@ This tool is a major upgrade to the original [evm-cfg](https://github.com/plotch
 2. Clone the repository and build:
 
 ```bash
-git clone https://github.com/yourusername/evm-cfg-execpath.git
-cd evm-cfg-execpath
+git clone https://github.com/yourusername/mev_vis.git
+cd mev_vis
 cargo build --release
 ```
 
@@ -37,17 +41,36 @@ You can use Infura, Alchemy, or other Ethereum RPC providers.
 
 ## Usage
 
+### Standard Method
+
 Basic usage:
 
 ```bash
 # Method 1: Provide an existing trace file
-./target/release/evm-cfg --trace <PATH_TO_TRACE_FILE> --output <OUTPUT_DOT_FILE>
+./target/release/evm-cfg --trace <PATH_TO_TRACE_FILE>
 
 # Method 2: Directly provide a transaction hash (automatic trace retrieval)
 ./target/release/evm-cfg --tx-hash <TRANSACTION_HASH>
 ```
 
-Parameters:
+### Simplified Method (Recommended)
+
+A simplified wrapper script `mev-cfg` is provided for convenience:
+
+```bash
+# First, make the script executable (only needed once)
+chmod +x mev-cfg
+
+# Method 1: Provide an existing trace file
+./mev-cfg --trace <PATH_TO_TRACE_FILE>
+
+# Method 2: Directly provide a transaction hash (automatic trace retrieval)
+./mev-cfg --tx-hash <TRANSACTION_HASH>
+```
+
+The `mev-cfg` script automatically checks if a release build exists and creates one if needed, then forwards all arguments to the executable.
+
+### Parameters
 
 - `--trace`: Path to transaction trace file containing JSON output from debug_traceTransaction
 - `--tx-hash`: Transaction hash value; the program will automatically retrieve the trace and generate the graph
@@ -59,11 +82,27 @@ Examples:
 
 ```bash
 # Using an existing trace file
-./target/release/evm-cfg --trace ./traces/my_transaction.json --output ./output/transaction_graph.dot --render --format png
+./target/release/evm-cfg --trace ./traces/my_transaction.json --render
 
 # Directly using a transaction hash (automatic processing)
 ./target/release/evm-cfg --tx-hash 0xef39c19ceb07373914204e76019943d57e5c4e99760ec2a337a6e9d38a315fbc --render
 ```
+
+## Output Structure
+
+When you run the tool, it will create the following output structure:
+
+```
+Results/
+└── 0xTRANSACTION_HASH/
+    ├── 0xCONTRACT_ADDRESS1.dot  # Highlighted CFG for contract 1
+    ├── 0xCONTRACT_ADDRESS2.dot  # Highlighted CFG for contract 2
+    ├── ...
+    ├── Trace_TRANSACTION_HASH.txt  # Copy of the transaction trace
+    └── 0xTRANSACTION_HASH.dot  # Global transaction graph
+```
+
+If you use the `--render` option, it will also create image files (SVG by default) for each DOT file.
 
 ## Obtaining Transaction Traces
 
@@ -84,7 +123,7 @@ Save the retrieved JSON as a file to use as input for this tool.
 The generated DOT files can be viewed using Graphviz tools:
 
 ```bash
-dot -Tsvg output/transaction_graph.dot -o output/transaction_graph.svg
+dot -Tsvg Results/0xTRANSACTION_HASH/0xCONTRACT_ADDRESS.dot -o output.svg
 ```
 
 Or directly use the tool's `--render` option to automatically generate images.
@@ -93,46 +132,23 @@ Or directly use the tool's `--render` option to automatically generate images.
 
 The generated control flow graphs use the following color conventions:
 
-- **Green nodes**: Represent nodes that were actually executed
-- **Purple nodes**: Represent nodes containing SSTORE opcodes (state modifications)
-- **Green edges**: Represent execution paths
+- **Pink nodes (#f7768e)**: Represent nodes containing SSTORE opcodes (state modifications)
+- **Orange nodes (#ff9e64)**: Represent nodes containing ADD or SUB opcodes (value calculations)
+- **Green nodes (#9ece6a)**: Represent other executed nodes
 - **Blue bold edges**: Represent cross-contract calls
-- **Red edges**: Represent conditional branches (false)
-- **Green edges**: Represent conditional branches (true)
+- **Green edges**: Represent execution paths in the highlighted CFGs
 
-The SSTORE opcode is responsible for modifying contract storage state in the Ethereum EVM. By highlighting these nodes in purple, you can quickly identify all operations that change on-chain state during a transaction.
+The SSTORE opcode is responsible for modifying contract storage state in the Ethereum EVM. By highlighting these nodes in pink, you can quickly identify all operations that change on-chain state during a transaction.
 
----
+## Technical Details
 
-## Legacy Features (evm-cfg-execpath)
+This tool combines static analysis with execution traces to produce comprehensive transaction flow visualizations:
 
-The following are features from the original version this tool is based on, now extended:
-
-### Static Analysis Phase
-
-- Splits bytecode into a structure representable by a graph through static analysis
-- Provides continuous instruction blocks that aren't interrupted by jumps
-- Provides a jump table (jumpdests positions)
-- Provides entry nodes for all blocks
-- Identifies "direct" jumps (when push is directly followed by jump)
-- Static analysis resolves some indirect (but concrete) positions if the push is still found in the same instruction block
-- Provides stack usage information within blocks
-
-### Basic Edge Formation
-
-Jumps and Jumpis with direct push values are connected to their jumpdests. The False side of Jumpis is connected to the next instruction.
-
-### Pruning the CFG
-
-Nodes with no incoming edges and not starting with JUMPDEST cannot be entered and will be removed to reduce clutter.
-
-### Symbolic Stack and Traversal
-
-The method used to prevent loops from running indefinitely:
-- Only execute specific opcodes: _AND_, PUSH, JUMP, JUMPI, JUMPDEST, RETURN, INVALID, SELFDESTRUCT, STOP
-- Only track possible jump destination values on the symbolic stack
-- Prevent the traverser from entering blocks where the stack is not large enough
-- When traversing to a new block, add (current_pc, next_pc, symbolic_stack) to the set of visited nodes
+1. **Transaction Parsing**: Extracts all contract addresses and execution steps from transaction traces
+2. **Bytecode Analysis**: Performs static analysis on each contract's bytecode to create basic CFGs
+3. **Execution Path Highlighting**: Marks paths actually executed during the transaction
+4. **Operation-Based Coloring**: Differentiates nodes based on their operations (SSTORE, ADD/SUB, etc.)
+5. **Cross-Contract Flow**: Links individual contract CFGs to show the complete transaction flow
 
 ## Contributing
 
@@ -141,7 +157,3 @@ Pull Requests or Issues are welcome!
 ## License
 
 [MIT License](LICENSE)
-
-- Highlighting all blocks and edges that were actually executed during the transaction, based on the trace.
-
-This allows users to visualize not just the static structure of the contract, but also the precise path taken during a specific transaction.

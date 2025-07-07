@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [ ! -f "./target/release/evm-cfg" ]; then
+    echo "build release version..."
+    cargo build --release
+fi
+
+# 运行命令
+./target/release/evm-cfg "$@"

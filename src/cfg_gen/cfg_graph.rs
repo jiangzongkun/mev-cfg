@@ -347,6 +347,70 @@ impl<'main> CFGRunner<'main> {
         dot_str.join("\n")
     }
 
+    /// Export only highlighted nodes and edges (only executed parts)
+    pub fn cfg_dot_str_highlighted_only(&self) -> String {
+        let mut dot_str = Vec::new();
+        let raw_start_str = r##"digraph G {
+    node [shape=box, style="filled, rounded", color="#565f89", fontcolor="#1a1b26", fontname="Helvetica"];
+    edge [color="#9ece6a", fontcolor="#1a1b26", fontname="Helvetica", penwidth=3];
+    bgcolor="#1a1b26";"##;
+        dot_str.push(raw_start_str.to_string());
+
+        // Only output highlighted nodes
+        if let Some(ref pcs) = self.executed_pcs {
+            for ((start_pc, end_pc), block) in self.map_to_instructionblock.iter() {
+                if pcs.contains(start_pc) {
+                    let label = format!("{}", block);
+                    // Color priority: SSTORE > ADD/SUB > others
+                    let mut has_sstore = false;
+                    let mut has_add_or_sub = false;
+                    for (_pc, op, _push) in &block.ops {
+                        let opname = super::opcode(*op).name.to_ascii_lowercase();
+                        if opname == "sstore" {
+                            has_sstore = true;
+                            break;
+                        }
+                        if opname == "add" || opname == "sub" {
+                            has_add_or_sub = true;
+                        }
+                    }
+                    let fillcolor = if has_sstore {
+                        "#f7768e" // Pink for SSTORE
+                    } else if has_add_or_sub {
+                        "#ff9e64" // Orange for ADD/SUB
+                    } else {
+                        "#9ece6a" // Green for others
+                    };
+                    let mut attrs = vec![
+                        format!("label = \"{}\"", label.replace("\"", "\\\"")),
+                        format!("fillcolor = \"{}\" fontcolor = \"#1a1b26\"", fillcolor)
+                    ];
+                    if *start_pc == 0 {
+                        attrs.push("shape = invhouse".to_string());
+                    }
+                    dot_str.push(format!(
+                        "\"{}_{}\" [{}];",
+                        start_pc, end_pc,
+                        attrs.join(" ")
+                    ));
+                }
+            }
+
+            // Only output highlighted edges (from and to both highlighted)
+            for (from, to, _edge_type) in self.cfg_dag.all_edges() {
+                if pcs.contains(&from.0) && pcs.contains(&to.0) {
+                    dot_str.push(format!(
+                        "\"{}_{}\" -> \"{}_{}\";",
+                        from.0, from.1, to.0, to.1
+                    ));
+                }
+            }
+        }
+
+        dot_str.push("}".to_string());
+        dot_str.join("\n")
+    }
+
     pub fn set_executed_pcs(&mut self, pcs: HashSet<u16>) {
         self.executed_pcs = Some(pcs);
     }

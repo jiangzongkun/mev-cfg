@@ -61,8 +61,18 @@ async fn main() -> Result<()> {
         
         println!("🔍 Fetching trace for transaction {} from blockchain...", tx_hash);
         
-        // Get and save trace
-        let trace_file = save_transaction_trace(tx_hash, &blockchain_service).await?;
+        // Determine output directory
+        let output_dir = format!("Results/{}", tx_hash_str);
+        if !Path::new(&output_dir).exists() {
+            std::fs::create_dir_all(&output_dir)?;
+        }
+        
+        // Get trace content
+        let trace_content = save_transaction_trace(tx_hash, &blockchain_service).await?;
+        
+        // Save to file in the transaction's directory
+        let trace_file = format!("{}/Trace_{}.txt", output_dir, tx_hash_str);
+        std::fs::write(&trace_file, trace_content)?;
         println!("✅ Transaction trace saved to {}", trace_file);
         
         trace_file
@@ -74,10 +84,10 @@ async fn main() -> Result<()> {
     let output_path = if let Some(output_file) = &args.output {
         output_file.clone()
     } else if let Some(tx_hash) = &args.tx_hash {
-        // Name output file after transaction hash and save in Results directory
-        let output_dir = "Results";
-        if !Path::new(output_dir).exists() {
-            std::fs::create_dir_all(output_dir)?;
+        // Create output directory based on transaction hash
+        let output_dir = format!("Results/{}", tx_hash);
+        if !Path::new(&output_dir).exists() {
+            std::fs::create_dir_all(&output_dir)?;
         }
         format!("{}/{}.dot", output_dir, tx_hash)
     } else {
@@ -87,9 +97,9 @@ async fn main() -> Result<()> {
             .and_then(|s| s.to_str())
             .unwrap_or("output");
         
-        let output_dir = "Results";
-        if !Path::new(output_dir).exists() {
-            std::fs::create_dir_all(output_dir)?;
+        let output_dir = format!("Results/{}", trace_filename.replace(".txt", ""));
+        if !Path::new(&output_dir).exists() {
+            std::fs::create_dir_all(&output_dir)?;
         }
         
         format!("{}/{}.dot", output_dir, trace_filename.replace(".txt", ""))
@@ -115,14 +125,48 @@ async fn main() -> Result<()> {
     println!("🔗 Building global transaction execution graph...");
     analyzer.build_global_transaction_graph()?;
     
-    // Save to dot file
+    // Make sure the output path uses the same directory as defined earlier
+    let output_dir = Path::new(&output_path).parent().unwrap_or_else(|| Path::new(".")).to_str().unwrap();
+    
+    // Create output directory if it doesn't exist
+    if !Path::new(&output_dir).exists() {
+        std::fs::create_dir_all(&output_dir)?;
+    }
+
+    // For trace files from --trace option, copy to the output directory
+    if args.tx_hash.is_none() {
+        // Only needed for --trace option, as --tx-hash already saves to correct location
+        let trace_basename = Path::new(&trace_path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("trace");
+        
+        let trace_output_filename = format!("Trace_{}", trace_basename);
+        let trace_output_path = format!("{}/{}", &output_dir, trace_output_filename);
+        std::fs::copy(&trace_path, &trace_output_path)?;
+        println!("💾 Saved transaction trace to {}...", trace_output_path);
+    }
+    
+    // Save global transaction graph to DOT file
     println!("💾 Saving global transaction graph to {}...", output_path);
     analyzer.save_global_graph_dot(&output_path)?;
     
-    // Convert to image if requested
+    // Generate highlighted CFGs (now the default behavior)
+    println!("🔍 Generating highlighted CFGs for each contract...");
+    let saved_files = analyzer.save_contract_highlighted_cfgs(&output_dir)?;
+    println!("✅ Saved {} highlighted contract CFGs to {}", saved_files.len(), output_dir);
+    
+    // Convert to images if requested
     if args.render {
+        println!("🎨 Rendering highlighted CFG images...");
+        for dot_file in &saved_files {
+            let image_file = dot_file.replace(".dot", &format!(".{}", args.format));
+            analyzer.convert_to_image(dot_file, &image_file)?;
+        }
+        
+        // Also render the global graph
         let output_image = output_path.replace(".dot", &format!(".{}", args.format));
-        println!("🎨 Rendering image to {}...", output_image);
+        println!("🎨 Rendering global graph to {}...", output_image);
         analyzer.convert_to_image(&output_path, &output_image)?;
     }
     

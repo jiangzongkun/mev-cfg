@@ -32,7 +32,8 @@ pub struct TransactionNode {
     pub contract_address: H160,
     pub pc: u16,
     pub instruction: String,
-    pub contains_sstore: bool,  // New field, marks whether it contains SSTORE opcode
+    pub contains_sstore: bool,  // Marks whether it contains SSTORE opcode
+    pub contains_add_or_sub: bool, // Marks whether it contains ADD or SUB opcodes
 }
 
 impl Default for TransactionNode {
@@ -42,6 +43,7 @@ impl Default for TransactionNode {
             pc: 0,
             instruction: String::new(),
             contains_sstore: false,
+            contains_add_or_sub: false,
         }
     }
 }
@@ -183,12 +185,19 @@ impl TransactionAnalyzer {
                     // Check if it contains SSTORE opcode
                     let contains_sstore = instruction_block.ops.iter().any(|(_, op, _)| *op == 0x55); // SSTORE opcode is 0x55
                     
+                    // Check if it contains ADD or SUB opcodes
+                    let contains_add_or_sub = instruction_block.ops.iter().any(|(_, op, _)| 
+                        *op == 0x01 || // ADD opcode
+                        *op == 0x03    // SUB opcode
+                    );
+                    
                     // Create transaction node
                     let tx_node = TransactionNode {
                         contract_address: *address,
                         pc,
                         instruction: instruction_block.to_string(),
                         contains_sstore, // Set SSTORE flag
+                        contains_add_or_sub, // Set ADD/SUB flag
                     };
                     
                     // Add to global graph
@@ -257,17 +266,23 @@ impl TransactionAnalyzer {
             let addr_str = format!("{:?}", node.contract_address);
             let label = format!("{}\\nPC: {}\\n{}", addr_str, node.pc, node.instruction.replace('"', "\\\""));
             
-            // If node contains SSTORE opcode, highlight it with special style (purple)
-            if node.contains_sstore {
-                writeln!(
-                    &mut dot_str,
-                    "    {} [label=\"{}\", fillcolor=\"#bb9af7\", fontcolor=\"#1a1b26\", penwidth=2];",
-                    idx.index(),
-                    label
-                ).unwrap();
+            // Apply the same highlighting logic as in cfg_dot_str_highlighted_only
+            // Color priority: SSTORE > ADD/SUB > others
+            let fillcolor = if node.contains_sstore {
+                "#f7768e" // Pink for SSTORE
+            } else if node.contains_add_or_sub {
+                "#ff9e64" // Orange for ADD/SUB
             } else {
-                writeln!(&mut dot_str, "    {} [label=\"{}\"];", idx.index(), label).unwrap();
-            }
+                "#9ece6a" // Green for others
+            };
+            
+            writeln!(
+                &mut dot_str,
+                "    {} [label=\"{}\", fillcolor=\"{}\", fontcolor=\"#1a1b26\"];",
+                idx.index(),
+                label,
+                fillcolor
+            ).unwrap();
         }
         
         // Add edges
@@ -319,5 +334,34 @@ impl TransactionAnalyzer {
         }
         
         Ok(())
+    }
+
+    /// Export individual contract CFGs with only highlighted nodes and edges
+    pub fn export_contract_highlighted_cfgs(&self) -> HashMap<H160, String> {
+        let mut results = HashMap::new();
+        
+        for (address, contract_cfg) in &self.contract_cfgs {
+            let dot_str = contract_cfg.cfg_runner.cfg_dot_str_highlighted_only();
+            results.insert(*address, dot_str);
+        }
+        
+        results
+    }
+    
+    /// Save individual contract CFGs with only highlighted nodes and edges
+    pub fn save_contract_highlighted_cfgs(&self, output_dir: &str) -> Result<Vec<String>> {
+        let mut saved_files = Vec::new();
+        
+        // Create output directory if it doesn't exist
+        std::fs::create_dir_all(output_dir)?;
+        
+        for (address, dot_str) in self.export_contract_highlighted_cfgs() {
+            let address_str = format!("{:x}", address);
+            let output_path = format!("{}/{}.dot", output_dir, address_str);
+            std::fs::write(&output_path, dot_str)?;
+            saved_files.push(output_path);
+        }
+        
+        Ok(saved_files)
     }
 }

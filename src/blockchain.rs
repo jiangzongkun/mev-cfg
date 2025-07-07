@@ -6,8 +6,6 @@ use ethers::{
 use eyre::{Result, eyre};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::fs;
-use std::path::Path;
 
 #[async_trait]
 pub trait BlockchainService {
@@ -166,7 +164,7 @@ pub async fn fetch_all_bytecodes(
     Ok(cache)
 }
 
-// Save transaction trace to file
+// Save transaction trace to file (returns trace json string only)
 pub async fn save_transaction_trace(
     tx_hash: H256,
     blockchain_service: &impl BlockchainService,
@@ -174,15 +172,7 @@ pub async fn save_transaction_trace(
     // Get transaction trace
     let trace_json = blockchain_service.get_transaction_trace(tx_hash).await?;
     
-    // Ensure output directory exists
-    let output_dir = "Results";
-    if !Path::new(output_dir).exists() {
-        fs::create_dir_all(output_dir)?;
-    }
-    
-    // Save to file, maintain format consistency with original
-    let trace_path = format!("{}/Trace_{:x}.txt", output_dir, tx_hash);
-    fs::write(&trace_path, trace_json)?;
-    
-    Ok(trace_path)
+    // Return the trace JSON without saving to file
+    // The main.rs will handle saving to the correct location
+    Ok(trace_json)
 }
